@@ -1,9 +1,8 @@
 from fastapi.middleware.cors import CORSMiddleware
 
+# Importing app package applies resolver hardening in app/__init__.py.
 from . import advanced_main as engine
-from .resolver_overrides import apply as apply_resolver_overrides
 
-apply_resolver_overrides(engine)
 core_app = engine.app
 
 # Atlas Android currently renders a local WebView and calls the Atlas Cloud
