@@ -112,9 +112,6 @@ jobs:
           }
           trap cleanup EXIT
 
-          # Some Azure subscriptions block ACR Tasks. Build locally on the
-          # GitHub runner and push directly instead. Registry admin access is
-          # enabled only for this short-lived push and is disabled on exit.
           az acr update --name "$ACR_NAME" --admin-enabled true --output none
           ACR_USERNAME=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
           ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
@@ -192,7 +189,7 @@ jobs:
           curl --fail --silent --show-error \
             -H "Authorization: Bearer $ATLAS_MOBILE_SHARED_TOKEN" \
             -H 'Content-Type: application/json' \
-            --data '{"question":"A customer owing us repaid 500 through bank","company":{"name":"Deployment Smoke Test","currency":"GHS","country":"Ghana"},"businessData":{"customers":[{"name":"Smoke Customer","balance":500,"overdue":0}]}}' \
+            --data '{"question":"Smoke Customer, a customer owing us, repaid 500 through bank","company":{"name":"Deployment Smoke Test","currency":"GHS","country":"Ghana"},"businessData":{"customers":[{"name":"Smoke Customer","balance":500,"overdue":0}]}}' \
             "$BASE_URL/v1/mobile/ask" | tee /tmp/atlas-receipt.json
           grep -q 'Accounts Receivable' /tmp/atlas-receipt.json
 
