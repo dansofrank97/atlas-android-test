@@ -5,11 +5,15 @@ on:
     branches: [main]
     paths:
       - 'cloud/**'
+      - 'infra/**'
       - '.github/workflows/test-cloud.yml'
+      - '.github/workflows/deploy-cloud.yml'
   pull_request:
     paths:
       - 'cloud/**'
+      - 'infra/**'
       - '.github/workflows/test-cloud.yml'
+      - '.github/workflows/deploy-cloud.yml'
   workflow_dispatch:
 
 permissions:
@@ -35,3 +39,9 @@ jobs:
         run: python -m compileall -q cloud/app cloud/tests
       - name: Build container
         run: docker build -t atlas-cloud-intelligence:test cloud
+      - name: Validate Azure Bicep templates
+        run: |
+          az bicep install || true
+          az bicep upgrade
+          az bicep build --file infra/foundation.bicep --stdout >/dev/null
+          az bicep build --file infra/app.bicep --stdout >/dev/null
