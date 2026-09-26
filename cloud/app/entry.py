@@ -1,11 +1,10 @@
 from fastapi.middleware.cors import CORSMiddleware
 
-from .main import app as core_app
+from .advanced_main import app as core_app
 
-# The Android client currently renders a local WebView (file:// origin) and calls
-# the Atlas Cloud HTTPS API directly. Allow only the API methods/headers needed
-# by this test client. Authentication is still enforced by the Bearer token in
-# app.main.verify_mobile_auth.
+# Atlas Android currently renders a local WebView and calls the Atlas Cloud
+# HTTPS API through a native bridge. CORS remains enabled for browser/WebView
+# fallback clients; bearer authentication is still enforced by advanced_main.
 core_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
