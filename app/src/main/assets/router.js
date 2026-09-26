@@ -44,3 +44,4 @@ function resetUniversalDemo(){if(!confirm('Reset the sample company knowledge, P
 function atlasInjectUi(){atlasRepairDemoOpening();var ai=document.querySelector('.card.ai');if(ai&&!document.getElementById('atlasBasketCard')){var c=document.createElement('div');c.id='atlasBasketCard';c.className='card';ai.parentNode.insertBefore(c,ai.nextSibling);}renderBasketCard();var sub=document.querySelector('.sub');if(sub)sub.textContent='Financial OS · Universal Intelligence Test Build 0.4';var q=document.getElementById('q');if(q)q.placeholder='Ask about the business, or tell Atlas what happened';}
 window.resetUniversalDemo=resetUniversalDemo;
 window.addEventListener('DOMContentLoaded',function(){setTimeout(atlasInjectUi,80);});
+(function(){var s=document.createElement('script');s.src='hybrid.js';document.head.appendChild(s);})();
