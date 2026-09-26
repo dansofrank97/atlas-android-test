@@ -10,7 +10,7 @@ import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 
 
 class LedgerSummary(BaseModel):
@@ -114,11 +114,11 @@ def verify_mobile_auth(authorization: str | None = Header(default=None)) -> None
 
 def money(value: Any, currency: str = "GHS") -> str:
     try:
-        n = float(value or 0)
+        value_num = float(value or 0)
     except (TypeError, ValueError):
-        n = 0
+        value_num = 0
     symbol = "GH₵" if currency.upper() == "GHS" else currency.upper()
-    return f"{symbol} {n:,.2f}"
+    return f"{symbol} {value_num:,.2f}"
 
 
 def norm(text: str) -> str:
@@ -208,7 +208,7 @@ def business_answer(req: AskRequest) -> AskResponse | None:
             source="business_data",
             confidence="high",
         )
-    if re.search(r"low stock|reorder|running low|out of stock", q):
+    if re.search(r"low(?: in)? stock|low on stock|below reorder|reorder|running low|nearly out|out of stock", q):
         if low_stock:
             text = "Products at or below reorder level: " + "; ".join(
                 f"{x.get('name','Unnamed')} ({n(x.get('stock')):,.0f} units; reorder {n(x.get('reorder')):,.0f})"
@@ -223,7 +223,7 @@ def business_answer(req: AskRequest) -> AskResponse | None:
             source="business_data",
             confidence="high",
         )
-    if re.search(r"give me.*names|employee names|staff names|list.*employees|list.*staff", q):
+    if re.search(r"give me.*names|employee names|staff names|names of.*employees|list.*employees|list.*staff", q):
         names = ", ".join(str(x.get("name", "Unnamed")) for x in active_employees)
         return AskResponse(
             answer=(f"Active employees: {names}." if names else "No active employee records were supplied."),
