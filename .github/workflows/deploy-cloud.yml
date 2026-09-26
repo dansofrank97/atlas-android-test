@@ -98,13 +98,33 @@ jobs:
           echo "environment_name=$ENV_NAME" >> "$GITHUB_OUTPUT"
           echo "identity_id=$IDENTITY_ID" >> "$GITHUB_OUTPUT"
 
-      - name: Build immutable Atlas Cloud image in ACR
+      - name: Build and push immutable Atlas Cloud image
+        env:
+          ACR_NAME: ${{ steps.foundation.outputs.acr_name }}
+          ACR_SERVER: ${{ steps.foundation.outputs.acr_server }}
         run: |
-          az acr build \
-            --registry "${{ steps.foundation.outputs.acr_name }}" \
-            --image "$IMAGE_REPOSITORY:${GITHUB_SHA}" \
-            --file cloud/Dockerfile \
-            cloud
+          set -euo pipefail
+          IMAGE="$ACR_SERVER/$IMAGE_REPOSITORY:${GITHUB_SHA}"
+
+          cleanup() {
+            docker logout "$ACR_SERVER" >/dev/null 2>&1 || true
+            az acr update --name "$ACR_NAME" --admin-enabled false --output none >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          # Some Azure subscriptions block ACR Tasks. Build locally on the
+          # GitHub runner and push directly instead. Registry admin access is
+          # enabled only for this short-lived push and is disabled on exit.
+          az acr update --name "$ACR_NAME" --admin-enabled true --output none
+          ACR_USERNAME=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
+          ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
+          echo "::add-mask::$ACR_USERNAME"
+          echo "::add-mask::$ACR_PASSWORD"
+
+          printf '%s' "$ACR_PASSWORD" | docker login "$ACR_SERVER" --username "$ACR_USERNAME" --password-stdin
+          docker build --file cloud/Dockerfile --tag "$IMAGE" cloud
+          docker push "$IMAGE"
+          echo "Atlas Cloud image pushed: $ACR_SERVER/$IMAGE_REPOSITORY:<commit-sha>"
 
       - name: Deploy Atlas Cloud container app
         id: app
