@@ -10,14 +10,14 @@
 </style>
 </head>
 <body>
-<div class="top"><div class="toprow"><div><div class="brand">ATLAS</div><div class="sub">Financial OS · Conversational Test Build 0.3</div></div><button class="reset" onclick="resetDemo()">Reset demo</button></div></div>
+<div class="top"><div class="toprow"><div><div class="brand">ATLAS</div><div class="sub">Financial OS · Universal Intelligence Test Build 0.4</div></div><button class="reset" onclick="resetUniversalDemo()">Reset demo</button></div></div>
 <div class="wrap">
   <div class="card ai">
-    <h2>Ask Atlas</h2><div class="hint">Use ordinary language. If something important is missing, Atlas will ask you a follow-up question before posting.</div>
-    <div id="chat" class="chat">Try <b>“I bought furniture 15,000”</b>, <b>“I purchased a mango 50”</b>, or <b>“I borrowed money from a bank.”</b></div>
-    <div class="inputrow"><textarea id="q" placeholder="Tell Atlas what happened in simple words"></textarea><button class="send" onclick="ask()">Send</button></div>
+    <h2>Ask Atlas</h2><div class="hint">Ask about accounting, customers, inventory, staff, meetings, reports, or describe transactions in ordinary language.</div>
+    <div id="chat" class="chat">Try <b>“How many customers are owing us?”</b>, <b>“How many products do we have?”</b>, <b>“Who is our HR?”</b>, <b>“When is our next meeting?”</b>, or simply describe today’s activities.</div>
+    <div class="inputrow"><textarea id="q" placeholder="Ask anything about the business, or tell Atlas what happened"></textarea><button class="send" onclick="ask()">Send</button></div>
     <div class="captureRow"><button class="ghost" onclick="openCapture()">📷 Camera / Upload</button><button class="ghost" onclick="advancedPosting()">🧾 Advanced Posting</button></div>
-    <div class="fileNote">Images are read with on-device OCR. Text/CSV can be read offline. Other files can be attached for production document processing.</div>
+    <div class="fileNote">Images are read with on-device OCR. Text/CSV can be read offline. Business answers in this test build use sample company data unless they come from the local ledger.</div>
     <input id="fileInput" type="file" accept="image/*,.pdf,.csv,.txt,.xlsx,.xls,.doc,.docx" style="display:none" onchange="handleFile(this)">
   </div>
 
@@ -35,9 +35,10 @@
   <div class="card"><b>Quick actions</b><div class="actions"><button class="action" onclick="openCapture()">📎 Import evidence</button><button class="action" onclick="showReport('trial')">⚖️ Trial balance</button><button class="action" onclick="showReport('daily')">📊 Daily report</button><button class="action" onclick="showReport('journal')">📒 General journal</button><button class="action" onclick="showReport('balance')">🏢 Balance sheet</button><button class="action" onclick="showReport('income')">📈 Income statement</button></div></div>
 
   <div class="card"><div class="sectionTitle"><b>Recent activity</b><button onclick="showReport('journal')">Open journal</button></div><div id="recent" style="margin-top:8px"></div></div>
-  <div class="foot">Offline functional test · Local test ledger only · No real money movement</div>
+  <div class="foot">Universal intelligence test · Company records shown here are sample data · Local ledger + optional online general-knowledge lookup</div>
 </div>
 <div id="modal" class="modalRoot"></div><div id="toast" class="toast"></div>
 <script src="app.js"></script>
 <script src="conversation.js"></script>
+<script src="universal.js"></script>
 </body></html>
