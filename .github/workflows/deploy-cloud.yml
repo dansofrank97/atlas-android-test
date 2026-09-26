@@ -1,0 +1,183 @@
+name: Deploy Atlas Cloud to Azure
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Confirm production deployment'
+        required: true
+        default: false
+        type: boolean
+      enable_web_search:
+        description: 'Enable provider web search in Atlas Cloud'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AZURE_LOCATION: southafricanorth
+  RESOURCE_GROUP: atlas-cloud-prod-rg
+  PREFIX: atlasprod
+  APP_NAME: atlas-cloud-api
+  IMAGE_REPOSITORY: atlas-cloud
+
+jobs:
+  deploy:
+    if: ${{ inputs.deploy }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate required deployment configuration
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          ATLAS_AI_BASE_URL: ${{ secrets.ATLAS_AI_BASE_URL }}
+          ATLAS_AI_API_KEY: ${{ secrets.ATLAS_AI_API_KEY }}
+          ATLAS_AI_MODEL: ${{ secrets.ATLAS_AI_MODEL }}
+          ATLAS_MOBILE_SHARED_TOKEN: ${{ secrets.ATLAS_MOBILE_SHARED_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID ATLAS_AI_BASE_URL ATLAS_AI_API_KEY ATLAS_AI_MODEL ATLAS_MOBILE_SHARED_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured in the production environment."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then exit 1; fi
+          if [ "${#ATLAS_MOBILE_SHARED_TOKEN}" -lt 24 ]; then
+            echo "::error::ATLAS_MOBILE_SHARED_TOKEN must be at least 24 characters for this production gate."
+            exit 1
+          fi
+
+      - name: Azure OIDC login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install or update Bicep
+        run: |
+          az bicep install || true
+          az bicep upgrade
+          az bicep version
+
+      - name: Validate Bicep templates
+        run: |
+          az bicep build --file infra/foundation.bicep --stdout >/dev/null
+          az bicep build --file infra/app.bicep --stdout >/dev/null
+
+      - name: Create production resource group
+        run: az group create --name "$RESOURCE_GROUP" --location "$AZURE_LOCATION" --output none
+
+      - name: Deploy Azure foundation
+        id: foundation
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_NAME="atlas-foundation-${GITHUB_RUN_NUMBER}"
+          az deployment group create \
+            --name "$DEPLOYMENT_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/foundation.bicep \
+            --parameters prefix="$PREFIX" location="$AZURE_LOCATION" \
+            --output none
+          ACR_NAME=$(az deployment group show --name "$DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" --query properties.outputs.registryName.value -o tsv)
+          ACR_SERVER=$(az deployment group show --name "$DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" --query properties.outputs.registryLoginServer.value -o tsv)
+          ENV_NAME=$(az deployment group show --name "$DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" --query properties.outputs.environmentName.value -o tsv)
+          IDENTITY_ID=$(az deployment group show --name "$DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" --query properties.outputs.pullIdentityId.value -o tsv)
+          echo "acr_name=$ACR_NAME" >> "$GITHUB_OUTPUT"
+          echo "acr_server=$ACR_SERVER" >> "$GITHUB_OUTPUT"
+          echo "environment_name=$ENV_NAME" >> "$GITHUB_OUTPUT"
+          echo "identity_id=$IDENTITY_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Build immutable Atlas Cloud image in ACR
+        run: |
+          az acr build \
+            --registry "${{ steps.foundation.outputs.acr_name }}" \
+            --image "$IMAGE_REPOSITORY:${GITHUB_SHA}" \
+            --file cloud/Dockerfile \
+            cloud
+
+      - name: Deploy Atlas Cloud container app
+        id: app
+        env:
+          ATLAS_AI_BASE_URL: ${{ secrets.ATLAS_AI_BASE_URL }}
+          ATLAS_AI_API_KEY: ${{ secrets.ATLAS_AI_API_KEY }}
+          ATLAS_AI_MODEL: ${{ secrets.ATLAS_AI_MODEL }}
+          ATLAS_MOBILE_SHARED_TOKEN: ${{ secrets.ATLAS_MOBILE_SHARED_TOKEN }}
+        run: |
+          set -euo pipefail
+          DEPLOYMENT_NAME="atlas-app-${GITHUB_RUN_NUMBER}"
+          IMAGE="${{ steps.foundation.outputs.acr_server }}/$IMAGE_REPOSITORY:${GITHUB_SHA}"
+          az deployment group create \
+            --name "$DEPLOYMENT_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/app.bicep \
+            --parameters \
+              location="$AZURE_LOCATION" \
+              appName="$APP_NAME" \
+              environmentName="${{ steps.foundation.outputs.environment_name }}" \
+              registryServer="${{ steps.foundation.outputs.acr_server }}" \
+              pullIdentityId="${{ steps.foundation.outputs.identity_id }}" \
+              image="$IMAGE" \
+              aiBaseUrl="$ATLAS_AI_BASE_URL" \
+              aiModel="$ATLAS_AI_MODEL" \
+              enableWebSearch=${{ inputs.enable_web_search }} \
+              aiApiKey="$ATLAS_AI_API_KEY" \
+              mobileSharedToken="$ATLAS_MOBILE_SHARED_TOKEN" \
+            --output none
+          FQDN=$(az deployment group show --name "$DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" --query properties.outputs.fqdn.value -o tsv)
+          ENDPOINT=$(az deployment group show --name "$DEPLOYMENT_NAME" --resource-group "$RESOURCE_GROUP" --query properties.outputs.endpoint.value -o tsv)
+          echo "fqdn=$FQDN" >> "$GITHUB_OUTPUT"
+          echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          BASE_URL="https://${{ steps.app.outputs.fqdn }}"
+          for i in {1..18}; do
+            if curl --fail --silent --show-error --max-time 15 "$BASE_URL/health"; then
+              echo
+              exit 0
+            fi
+            echo "Waiting for Atlas Cloud revision... attempt $i/18"
+            sleep 10
+          done
+          echo "::error::Atlas Cloud did not become healthy in time."
+          exit 1
+
+      - name: Authenticated smoke test
+        env:
+          ATLAS_MOBILE_SHARED_TOKEN: ${{ secrets.ATLAS_MOBILE_SHARED_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://${{ steps.app.outputs.fqdn }}"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $ATLAS_MOBILE_SHARED_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data '{"question":"What is our total cash?","company":{"name":"Deployment Smoke Test","currency":"GHS","country":"Ghana"},"ledgerSummary":{"cash":1250,"assets":1250,"liabilities":0,"revenue":0,"expenses":0,"profit":0}}' \
+            "$BASE_URL/v1/mobile/ask" | tee /tmp/atlas-smoke.json
+          grep -q '1,250.00' /tmp/atlas-smoke.json
+
+      - name: Deployment summary
+        run: |
+          {
+            echo '## Atlas Cloud production deployment'
+            echo ''
+            echo "- Region: $AZURE_LOCATION"
+            echo "- Resource group: $RESOURCE_GROUP"
+            echo "- Container app: $APP_NAME"
+            echo "- Image tag: $GITHUB_SHA"
+            echo "- HTTPS API: ${{ steps.app.outputs.endpoint }}"
+            echo "- Web search enabled: ${{ inputs.enable_web_search }}"
+            echo '- Health check: passed'
+            echo '- Authenticated API smoke test: passed'
+          } >> "$GITHUB_STEP_SUMMARY"
