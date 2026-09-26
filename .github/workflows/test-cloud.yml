@@ -45,3 +45,5 @@ jobs:
           az bicep upgrade
           az bicep build --file infra/foundation.bicep --stdout >/dev/null
           az bicep build --file infra/app.bicep --stdout >/dev/null
+      - name: Validate Azure OIDC bootstrap script
+        run: bash -n infra/bootstrap-github-azure-oidc.sh
