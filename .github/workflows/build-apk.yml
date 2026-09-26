@@ -18,6 +18,7 @@ jobs:
         run: |
           node --check app/src/main/assets/app.js
           node --check app/src/main/assets/conversation.js
+          node --check app/src/main/assets/universal.js
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
