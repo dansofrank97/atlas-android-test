@@ -61,8 +61,20 @@ public class HybridActivity extends MainActivity {
             });
         }
 
+        /* Legacy unauthenticated bridge retained for local/dev endpoints. */
         @JavascriptInterface
         public void cloudAsk(String endpoint, String payloadJson) {
+            performCloudAsk(endpoint, null, payloadJson);
+        }
+
+        /* Production test bridge. The token is supplied from device-local storage
+           and is never compiled into the APK or committed to GitHub. */
+        @JavascriptInterface
+        public void cloudAskAuth(String endpoint, String bearerToken, String payloadJson) {
+            performCloudAsk(endpoint, bearerToken, payloadJson);
+        }
+
+        private void performCloudAsk(String endpoint, String bearerToken, String payloadJson) {
             new Thread(() -> {
                 HttpsURLConnection connection = null;
                 try {
@@ -72,12 +84,15 @@ public class HybridActivity extends MainActivity {
                     URL url = new URL(endpoint);
                     connection = (HttpsURLConnection) url.openConnection();
                     connection.setRequestMethod("POST");
-                    connection.setConnectTimeout(12000);
-                    connection.setReadTimeout(30000);
+                    connection.setConnectTimeout(15000);
+                    connection.setReadTimeout(45000);
                     connection.setDoOutput(true);
                     connection.setRequestProperty("Content-Type", "application/json; charset=utf-8");
                     connection.setRequestProperty("Accept", "application/json, text/plain");
-                    connection.setRequestProperty("X-Atlas-Client", "android-test-v0.5");
+                    connection.setRequestProperty("X-Atlas-Client", "android-cloud-live-v0.7");
+                    if (bearerToken != null && !bearerToken.trim().isEmpty()) {
+                        connection.setRequestProperty("Authorization", "Bearer " + bearerToken.trim());
+                    }
                     byte[] body = String.valueOf(payloadJson == null ? "{}" : payloadJson).getBytes(StandardCharsets.UTF_8);
                     connection.setFixedLengthStreamingMode(body.length);
                     try (OutputStream out = connection.getOutputStream()) {
@@ -87,7 +102,9 @@ public class HybridActivity extends MainActivity {
                     int code = connection.getResponseCode();
                     InputStream stream = code >= 200 && code < 300 ? connection.getInputStream() : connection.getErrorStream();
                     String response = readAll(stream);
-                    if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code + (response.isEmpty() ? "" : ": " + response));
+                    if (code < 200 || code >= 300) {
+                        throw new IllegalStateException("HTTP " + code + (response.isEmpty() ? "" : ": " + response));
+                    }
                     callHybridJs("window.onNativeCloudAnswer && window.onNativeCloudAnswer(true," + JSONObject.quote(response) + ");");
                 } catch (Exception ex) {
                     callHybridJs("window.onNativeCloudAnswer && window.onNativeCloudAnswer(false," + JSONObject.quote(ex.getMessage()) + ");");
