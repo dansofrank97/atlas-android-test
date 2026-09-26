@@ -22,6 +22,8 @@ jobs:
           node --check app/src/main/assets/enterprise.js
           node --check app/src/main/assets/reports.js
           node --check app/src/main/assets/router.js
+          node --check app/src/main/assets/hybrid.js
+          node --check app/src/main/assets/native_overrides.js
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
