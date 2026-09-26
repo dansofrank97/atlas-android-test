@@ -12,6 +12,7 @@ LOCATION="${LOCATION:-southafricanorth}"
 APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-atlas-github-deploy}"
 
 command -v az >/dev/null 2>&1 || { echo 'Azure CLI (az) is required.' >&2; exit 1; }
+command -v curl >/dev/null 2>&1 || { echo 'curl is required.' >&2; exit 1; }
 
 SUBSCRIPTION_ID="${AZURE_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
 TENANT_ID="$(az account show --query tenantId -o tsv)"
@@ -65,26 +66,57 @@ az role assignment create \
   --scope "$RG_ID" \
   --output none 2>/dev/null || true
 
-SUBJECT="repo:${REPO}:environment:${GITHUB_ENVIRONMENT}"
-CREDENTIAL_NAME="atlas-github-${GITHUB_ENVIRONMENT}"
+OWNER="${REPO%%/*}"
+REPO_NAME="${REPO#*/}"
+REPO_JSON="$(curl -fsSL -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/${REPO}")"
+OWNER_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["owner"]["id"])' <<<"$REPO_JSON")"
+REPO_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$REPO_JSON")"
 
-EXISTING_FIC="$(az ad app federated-credential list --id "$OBJECT_ID" --query "[?name=='$CREDENTIAL_NAME'].name | [0]" -o tsv 2>/dev/null || true)"
-if [[ -z "$EXISTING_FIC" ]]; then
+# GitHub repositories created after July 15, 2026 use immutable OIDC subject
+# claims containing both owner ID and repository ID. Atlas uses that format.
+IMMUTABLE_SUBJECT="repo:${OWNER}@${OWNER_ID}/${REPO_NAME}@${REPO_ID}:environment:${GITHUB_ENVIRONMENT}"
+IMMUTABLE_CREDENTIAL_NAME="atlas-github-${GITHUB_ENVIRONMENT}-immutable"
+
+EXISTING_IMMUTABLE="$(az ad app federated-credential list --id "$OBJECT_ID" --query "[?name=='$IMMUTABLE_CREDENTIAL_NAME'].name | [0]" -o tsv 2>/dev/null || true)"
+if [[ -z "$EXISTING_IMMUTABLE" ]]; then
   TMP_JSON="$(mktemp)"
   trap 'rm -f "$TMP_JSON"' EXIT
   cat > "$TMP_JSON" <<JSON
 {
-  "name": "$CREDENTIAL_NAME",
+  "name": "$IMMUTABLE_CREDENTIAL_NAME",
   "issuer": "https://token.actions.githubusercontent.com",
-  "subject": "$SUBJECT",
-  "description": "GitHub Actions OIDC for Atlas production environment",
+  "subject": "$IMMUTABLE_SUBJECT",
+  "description": "GitHub Actions immutable OIDC subject for Atlas production environment",
   "audiences": ["api://AzureADTokenExchange"]
 }
 JSON
   az ad app federated-credential create --id "$OBJECT_ID" --parameters "$TMP_JSON" --output none
-  echo "Created federated credential for: $SUBJECT"
+  echo "Created immutable federated credential for: $IMMUTABLE_SUBJECT"
 else
-  echo "Federated credential already exists: $CREDENTIAL_NAME"
+  echo "Immutable federated credential already exists: $IMMUTABLE_CREDENTIAL_NAME"
+fi
+
+# Keep the legacy name-based credential too for compatibility with older subject
+# formats. Azure can safely hold both credentials on the same application.
+LEGACY_SUBJECT="repo:${REPO}:environment:${GITHUB_ENVIRONMENT}"
+LEGACY_CREDENTIAL_NAME="atlas-github-${GITHUB_ENVIRONMENT}"
+EXISTING_LEGACY="$(az ad app federated-credential list --id "$OBJECT_ID" --query "[?name=='$LEGACY_CREDENTIAL_NAME'].name | [0]" -o tsv 2>/dev/null || true)"
+if [[ -z "$EXISTING_LEGACY" ]]; then
+  TMP_JSON_LEGACY="$(mktemp)"
+  cat > "$TMP_JSON_LEGACY" <<JSON
+{
+  "name": "$LEGACY_CREDENTIAL_NAME",
+  "issuer": "https://token.actions.githubusercontent.com",
+  "subject": "$LEGACY_SUBJECT",
+  "description": "GitHub Actions legacy OIDC subject for Atlas production environment",
+  "audiences": ["api://AzureADTokenExchange"]
+}
+JSON
+  az ad app federated-credential create --id "$OBJECT_ID" --parameters "$TMP_JSON_LEGACY" --output none
+  rm -f "$TMP_JSON_LEGACY"
+  echo "Created legacy federated credential for: $LEGACY_SUBJECT"
+else
+  echo "Legacy federated credential already exists: $LEGACY_CREDENTIAL_NAME"
 fi
 
 cat <<EOF
@@ -103,8 +135,11 @@ ATLAS_AI_API_KEY=<server-side provider key>
 ATLAS_AI_MODEL=<deployed model name>
 ATLAS_MOBILE_SHARED_TOKEN=<random value of at least 24 characters>
 
-Federated subject:
-$SUBJECT
+Immutable federated subject:
+$IMMUTABLE_SUBJECT
+
+Legacy federated subject retained for compatibility:
+$LEGACY_SUBJECT
 
 No Azure client secret was created.
 EOF
