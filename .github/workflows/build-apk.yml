@@ -14,6 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Validate embedded JavaScript
+        run: |
+          node --check app/src/main/assets/app.js
+          node --check app/src/main/assets/conversation.js
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
