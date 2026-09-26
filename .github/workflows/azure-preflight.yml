@@ -1,0 +1,47 @@
+name: Atlas Azure OIDC Preflight
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/azure-preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Check required Azure OIDC settings
+        env:
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured for this repository/production environment."
+              missing=1
+            else
+              echo "$name is configured."
+            fi
+          done
+          exit "$missing"
+
+      - name: Azure OIDC login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify subscription access without changing resources
+        run: |
+          az account show --query '{subscription:name,tenant:tenantId,state:state}' -o json
+          echo 'Azure OIDC preflight passed. No Azure resources were created or modified.'
