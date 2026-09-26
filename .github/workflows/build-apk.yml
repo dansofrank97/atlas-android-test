@@ -24,6 +24,7 @@ jobs:
           node --check app/src/main/assets/router.js
           node --check app/src/main/assets/hybrid.js
           node --check app/src/main/assets/native_overrides.js
+          node --check app/src/main/assets/cloud-client.js
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
