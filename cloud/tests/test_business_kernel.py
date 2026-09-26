@@ -51,11 +51,11 @@ def test_customer_advance_is_not_revenue():
     assert any("Customer Deposits" in x["account"] and x["credit"] == 2000 for x in lines)
 
 
-def test_sales_return_asks_for_inventory_cost_context():
+def test_sales_return_explains_inventory_cost_side():
     data = ask("A customer returned goods worth 800 from a credit sale")
     assert data["operation_code"] == "sales_return"
     assert data["posting_proposal"] is not None
-    assert any("Cost of Sales" in x for x in data["warnings"])
+    assert "Cost of Sales" in data["answer"]
 
 
 def test_inventory_shortage_posts_at_cost():
