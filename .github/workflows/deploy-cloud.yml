@@ -11,7 +11,7 @@ on:
       enable_web_search:
         description: 'Enable provider web search in Atlas Cloud'
         required: true
-        default: false
+        default: true
         type: boolean
 
 permissions:
@@ -164,8 +164,10 @@ jobs:
           set -euo pipefail
           BASE_URL="https://${{ steps.app.outputs.fqdn }}"
           for i in {1..18}; do
-            if curl --fail --silent --show-error --max-time 15 "$BASE_URL/health"; then
+            if curl --fail --silent --show-error --max-time 15 "$BASE_URL/health" | tee /tmp/atlas-health.json; then
               echo
+              grep -q '"status":"ok"' /tmp/atlas-health.json
+              grep -q '"business_engine":"integrated-v2"' /tmp/atlas-health.json
               exit 0
             fi
             echo "Waiting for Atlas Cloud revision... attempt $i/18"
@@ -174,7 +176,7 @@ jobs:
           echo "::error::Atlas Cloud did not become healthy in time."
           exit 1
 
-      - name: Authenticated smoke test
+      - name: Authenticated accounting smoke tests
         env:
           ATLAS_MOBILE_SHARED_TOKEN: ${{ secrets.ATLAS_MOBILE_SHARED_TOKEN }}
         run: |
@@ -187,6 +189,13 @@ jobs:
             "$BASE_URL/v1/mobile/ask" | tee /tmp/atlas-smoke.json
           grep -q '1,250.00' /tmp/atlas-smoke.json
 
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $ATLAS_MOBILE_SHARED_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data '{"question":"A customer owing us repaid 500 through bank","company":{"name":"Deployment Smoke Test","currency":"GHS","country":"Ghana"},"businessData":{"customers":[{"name":"Smoke Customer","balance":500,"overdue":0}]}}' \
+            "$BASE_URL/v1/mobile/ask" | tee /tmp/atlas-receipt.json
+          grep -q 'Accounts Receivable' /tmp/atlas-receipt.json
+
       - name: Deployment summary
         run: |
           {
@@ -198,6 +207,7 @@ jobs:
             echo "- Image tag: $GITHUB_SHA"
             echo "- HTTPS API: ${{ steps.app.outputs.endpoint }}"
             echo "- Web search enabled: ${{ inputs.enable_web_search }}"
+            echo '- Integrated business engine: v2'
             echo '- Health check: passed'
-            echo '- Authenticated API smoke test: passed'
+            echo '- Authenticated accounting smoke tests: passed'
           } >> "$GITHUB_STEP_SUMMARY"
