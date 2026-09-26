@@ -1,0 +1,37 @@
+name: Test Atlas Cloud Intelligence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloud/**'
+      - '.github/workflows/test-cloud.yml'
+  pull_request:
+    paths:
+      - 'cloud/**'
+      - '.github/workflows/test-cloud.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-cloud:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        working-directory: cloud
+        run: pip install -r requirements.txt
+      - name: Run tests
+        working-directory: cloud
+        env:
+          PYTHONPATH: .
+        run: pytest -q
+      - name: Compile Python
+        run: python -m compileall -q cloud/app cloud/tests
+      - name: Build container
+        run: docker build -t atlas-cloud-intelligence:test cloud
