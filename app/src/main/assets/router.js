@@ -10,7 +10,19 @@ function atlasWebKnowledge(query){
   return fetch(u).then(function(r){return r.json();}).then(function(x){var pages=x&&x.query&&x.query.pages||{},page=null;Object.keys(pages).forEach(function(k){if(!page)page=pages[k];});var txt=page&&page.extract?String(page.extract):String(hit.snippet||'').replace(/<[^>]+>/g,'');if(txt.length>900)txt=txt.slice(0,897)+'…';chatHtml('<b>You:</b> '+esc(query)+'<br><br><b>Atlas:</b> '+esc(txt)+'<div class="muted" style="margin-top:8px">Online source: Wikipedia general-knowledge lookup. Live news, prices, weather and unrestricted web reasoning still require the production Atlas cloud/web service.</div>');});
  }).catch(function(){chatHtml('<b>You:</b> '+esc(query)+'<br><br><b>Atlas:</b> I do not have enough local company information to answer that, and the online knowledge lookup was unavailable or unsuitable. I will not guess. The production Atlas cloud AI/web service is required for unrestricted current-web questions.');});
 }
-function atlasAnswerBusiness(text,remindDialogue){var biz=typeof businessAnswer==='function'?businessAnswer(text):null;if(!biz)return false;if(remindDialogue)biz+='<div class="muted" style="margin-top:8px">Your unfinished transaction is still waiting. Continue it whenever you are ready.</div>';chatHtml('<b>You:</b> '+esc(text)+'<br><br><b>Atlas:</b> '+biz);return true;}
+function atlasContextualBusinessAnswer(text){
+ try{
+  var s=entNorm(text),items=entContextItems();if(!atlasQueryContext||!items.length)return null;
+  if(atlasQueryContext.type==='products'){
+   if(/when.*last|last.*(buy|bought|purchase)|last purchase/.test(s))return items.map(function(p){return '<b>'+esc(p.name)+'</b>: last purchased '+esc(p.lastPurchase)+' — '+p.lastPurchaseQty+' units at '+entMoney(p.lastPurchaseUnitCost)+' each from '+esc(p.supplier)+'.';}).join('<br>')+demoSource();
+   if(/who.*supplier|who supplies|supplier.*it|where.*buy/.test(s))return items.map(function(p){return '<b>'+esc(p.name)+'</b>: '+esc(p.supplier)+'.';}).join('<br>')+demoSource();
+   if(/how much.*(cost|price)|price.*it|cost.*it/.test(s))return items.map(function(p){return '<b>'+esc(p.name)+'</b>: cost '+entMoney(p.lastPurchaseUnitCost)+', selling price '+entMoney(p.price)+'.';}).join('<br>')+demoSource();
+  }
+  if(atlasQueryContext.type==='employees'&&/(what.*role|what.*do|department|position)/.test(s))return items.map(function(e){return '<b>'+esc(e.name)+'</b> — '+esc(e.role)+', '+esc(e.department)+'.';}).join('<br>')+demoSource();
+ }catch(e){}
+ return null;
+}
+function atlasAnswerBusiness(text,remindDialogue){var biz=atlasContextualBusinessAnswer(text)||(typeof businessAnswer==='function'?businessAnswer(text):null);if(!biz)return false;if(remindDialogue)biz+='<div class="muted" style="margin-top:8px">Your unfinished transaction is still waiting. Continue it whenever you are ready.</div>';chatHtml('<b>You:</b> '+esc(text)+'<br><br><b>Atlas:</b> '+biz);return true;}
 var atlasPriorHandleAsk=window.handleAsk;
 window.handleAsk=function(text){
  var s=String(text||'').trim().toLowerCase().replace(/\s+/g,' ');
