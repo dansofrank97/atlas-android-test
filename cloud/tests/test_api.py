@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.advanced_main import app
+from app import advanced_main
 
 client = TestClient(app)
 
@@ -231,3 +232,42 @@ def test_unknown_question_does_not_hallucinate_without_provider():
     data = ask("Tell me something only our managing director would know").json()
     assert data["source"] == "unavailable"
     assert "will not guess" in data["answer"].lower()
+
+
+def test_web_search_source_extraction_supports_foundry_action_sources():
+    body = {
+        "output": [
+            {
+                "type": "web_search_call",
+                "action": {
+                    "sources": [
+                        {"title": "Bank of Ghana", "url": "https://www.bog.gov.gh/"},
+                        {"title": "Duplicate", "url": "https://www.bog.gov.gh/"},
+                    ]
+                },
+            },
+            {
+                "type": "output_message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "answer",
+                        "annotations": [
+                            {
+                                "type": "url_citation",
+                                "url": "https://www.ifrs.org/",
+                                "title": "IFRS Foundation",
+                            }
+                        ],
+                    }
+                ],
+            },
+        ]
+    }
+    citations = advanced_main.extract_citations(body)
+    assert [x.url for x in citations] == ["https://www.bog.gov.gh/", "https://www.ifrs.org/"]
+
+
+def test_current_external_detection_covers_fx_and_business_news():
+    assert advanced_main.current_external_question("What is the current USD to GHS exchange rate today?")
+    assert advanced_main.current_external_question("What is trending in business news this week?")
