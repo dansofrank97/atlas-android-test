@@ -331,10 +331,19 @@ async def robust_current_web(engine: Any, req: Any):
     async with httpx.AsyncClient(timeout=engine.settings.request_timeout) as client:
         for tool_type in ("web_search", "web_search_preview"):
             payload = dict(base)
-            payload["tools"] = [{"type": tool_type}]
+            location = {"type": "approximate", "country": "GH"} if str(req.company.country or "").strip().lower() == "ghana" else None
             if tool_type == "web_search":
-                payload["tools"] = [{"type": "web_search", "search_context_size": "medium"}]
+                web_tool: dict[str, Any] = {"type": "web_search", "search_context_size": "medium"}
+                if location:
+                    web_tool["user_location"] = location
+                payload["tools"] = [web_tool]
                 payload["tool_choice"] = "required"
+                payload["include"] = ["web_search_call.action.sources"]
+            else:
+                preview_tool: dict[str, Any] = {"type": "web_search_preview"}
+                if location:
+                    preview_tool["user_location"] = location
+                payload["tools"] = [preview_tool]
             try:
                 response = await client.post(url, headers=headers, json=payload)
                 if response.status_code >= 400:
