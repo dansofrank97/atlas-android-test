@@ -236,7 +236,7 @@ def _product_query(engine: Any, req: Any):
 
     named = _find_record(engine, products, req.question)
 
-    if re.search(r"\b(list|show|what|which).*(products?|items?|skus?).*(have|carry|stock|sell)|\bproduct list\b|\blist (all )?(products|items|skus)\b", q):
+    if not re.search(r"\b(low|below reorder|reorder|most|highest|least|lowest|out of stock|zero stock|no stock)\b", q) and re.search(r"\b(list|show|what|which).*(products?|items?|skus?).*(have|carry|stock|sell)|\bproduct list\b|\blist (all )?(products|items|skus)\b", q):
         names = []
         for row in products:
             label = _record_name(row)
