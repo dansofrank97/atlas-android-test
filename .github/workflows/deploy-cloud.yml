@@ -113,12 +113,32 @@ jobs:
           trap cleanup EXIT
 
           az acr update --name "$ACR_NAME" --admin-enabled true --output none
-          ACR_USERNAME=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
-          ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
-          echo "::add-mask::$ACR_USERNAME"
-          echo "::add-mask::$ACR_PASSWORD"
 
-          printf '%s' "$ACR_PASSWORD" | docker login "$ACR_SERVER" --username "$ACR_USERNAME" --password-stdin
+          # ACR can take several seconds to propagate an admin enable/credential
+          # change. Retry with fresh credentials instead of failing the whole
+          # production deployment on the first 401.
+          logged_in=0
+          for attempt in 1 2 3 4; do
+            ACR_USERNAME=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
+            ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
+            echo "::add-mask::$ACR_USERNAME"
+            echo "::add-mask::$ACR_PASSWORD"
+            docker logout "$ACR_SERVER" >/dev/null 2>&1 || true
+            if printf '%s' "$ACR_PASSWORD" | docker login "$ACR_SERVER" --username "$ACR_USERNAME" --password-stdin; then
+              logged_in=1
+              break
+            fi
+            echo "ACR authentication has not propagated yet (attempt $attempt/4). Refreshing credentials and retrying..."
+            if [ "$attempt" -eq 2 ]; then
+              az acr credential renew --name "$ACR_NAME" --password-name password --output none || true
+            fi
+            sleep 15
+          done
+          if [ "$logged_in" -ne 1 ]; then
+            echo "::error::Unable to authenticate Docker to Azure Container Registry after retries."
+            exit 1
+          fi
+
           docker build --file cloud/Dockerfile --tag "$IMAGE" cloud
           docker push "$IMAGE"
           echo "Atlas Cloud image pushed: $ACR_SERVER/$IMAGE_REPOSITORY:<commit-sha>"
@@ -192,6 +212,29 @@ jobs:
             --data '{"question":"Smoke Customer, a customer owing us, repaid 500 through bank","company":{"name":"Deployment Smoke Test","currency":"GHS","country":"Ghana"},"businessData":{"customers":[{"name":"Smoke Customer","balance":500,"overdue":0}]}}' \
             "$BASE_URL/v1/mobile/ask" | tee /tmp/atlas-receipt.json
           grep -q 'Accounts Receivable' /tmp/atlas-receipt.json
+
+      - name: Verify live web search
+        if: ${{ inputs.enable_web_search }}
+        env:
+          ATLAS_MOBILE_SHARED_TOKEN: ${{ secrets.ATLAS_MOBILE_SHARED_TOKEN }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://${{ steps.app.outputs.fqdn }}"
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer $ATLAS_MOBILE_SHARED_TOKEN" \
+            -H 'Content-Type: application/json' \
+            --data '{"question":"What is the current USD to Ghana cedi exchange rate today? State the source and date.","company":{"name":"Deployment Smoke Test","currency":"GHS","country":"Ghana"}}' \
+            "$BASE_URL/v1/mobile/ask" | tee /tmp/atlas-web.json
+          python - <<'PY'
+          import json
+          with open("/tmp/atlas-web.json", encoding="utf-8") as f:
+              data = json.load(f)
+          if not data.get("web_used"):
+              raise SystemExit("Atlas did not use live web search for a current FX request.")
+          if not data.get("answer"):
+              raise SystemExit("Atlas web answer was empty.")
+          print("Atlas live web search verified.")
+          PY
 
       - name: Deployment summary
         run: |
