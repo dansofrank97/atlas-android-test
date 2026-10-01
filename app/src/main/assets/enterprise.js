@@ -23,5 +23,37 @@ if(/how many products|product count|number of products/.test(s)){setEntContext('
 var active=enterprise.employees.filter(function(e){return e.status==='Active'});if(/how many (employees|staff|workers)|employee count|staff count/.test(s)){setEntContext('employees',active,'active employees');return'There are <b>'+active.length+' active employees</b> in the sample employee master.'+demoSource();}if(/employee names|staff names|names of.*employees|list.*employees|list.*staff/.test(s)){setEntContext('employees',active,'active employees');return listEnt(active,function(e){return' — '+esc(e.role)+' · '+esc(e.department);})+demoSource();}if(/who.*(hr|human resources)|name.*(hr|human resources)|hr manager/.test(s)){var hr=active.filter(function(e){return /human resources|hr/i.test(e.department+' '+e.role)})[0];setEntContext('employees',[hr],'HR');return'The sample HR lead is <b>'+esc(hr.name)+'</b>, '+esc(hr.role)+'.'+demoSource();}if(/who.*accountant|finance staff|who.*finance/.test(s)){var fin=active.filter(function(e){return /finance|accountant/i.test(e.department+' '+e.role)});setEntContext('employees',fin,'finance employees');return listEnt(fin,function(e){return' — '+esc(e.role);})+demoSource();}var emp=findEmployee(s);if(emp&&/(who is|role|department|joined|salary)/.test(s))return'<b>'+esc(emp.name)+'</b> is '+esc(emp.role)+' in '+esc(emp.department)+', joined '+esc(emp.joined)+'. Sample monthly salary: '+entMoney(emp.monthlySalary)+'.'+demoSource();if(/payroll|salary total|total salaries|monthly salaries/.test(s))return'Sample monthly payroll is <b>'+entMoney(entSum(active,function(e){return e.monthlySalary;}))+'</b> before statutory deductions and employer costs.'+demoSource();
 if(/next meeting|when.*meeting|upcoming meeting/.test(s)){var now=Date.now(),future=enterprise.meetings.filter(function(m){return new Date(m.start).getTime()>=now}).sort(function(a,b){return new Date(a.start)-new Date(b.start)}),mt=future[0]||enterprise.meetings[0];if(!mt)return'No meeting is recorded.'+demoSource();setEntContext('meetings',[mt],'next meeting');return'Your next sample meeting is <b>'+esc(mt.title)+'</b> on <b>'+esc(new Date(mt.start).toLocaleString())+'</b> at '+esc(mt.location)+'. Attendees: '+esc(mt.attendees.join(', '))+'.'+demoSource();}if(/show.*meetings|list.*meetings|upcoming meetings/.test(s)){var mts=enterprise.meetings.slice().sort(function(a,b){return new Date(a.start)-new Date(b.start)});setEntContext('meetings',mts,'upcoming meetings');return listEnt(mts,function(m){return' — '+esc(new Date(m.start).toLocaleString())+' · '+esc(m.location);})+demoSource();}
 if(/how many suppliers|supplier count|number of suppliers/.test(s)){setEntContext('suppliers',enterprise.suppliers,'suppliers');return'There are <b>'+enterprise.suppliers.length+' suppliers</b> in the sample supplier master.'+demoSource();}if(/list.*suppliers|supplier names/.test(s)){setEntContext('suppliers',enterprise.suppliers,'suppliers');return listEnt(enterprise.suppliers,function(x){return' — balance '+entMoney(x.balance);})+demoSource();}if(/last (posting|transaction|journal)|most recent (posting|transaction)/.test(s)){if(!state.transactions.length)return'No transactions have been posted in the local ledger yet.';var tx=state.transactions[0];return'The most recent posting is <b>'+esc(tx.memo)+'</b> on '+esc(new Date(tx.date).toLocaleString())+'.';}if(/how many (postings|transactions|journal entries)/.test(s))return'The local ledger contains <b>'+state.transactions.length+' posted transactions</b>. The Posting Basket contains '+atlasBasket.length+' unposted transactions.';return null;}
-function syncEnterpriseFromPosting(p){try{var txt=entNorm(p.memo),dr=0,cr=0;for(var i=0;i<p.lines.length;i++)if(p.lines[i].account==='Accounts Receivable'){dr+=Number(p.lines[i].debit||0);cr+=Number(p.lines[i].credit||0);}if(dr>0){for(var c=0;c<enterprise.customers.length;c++){if(txt.indexOf(entNorm(enterprise.customers[c].name))>=0){enterprise.customers[c].balance+=dr;break;}}}if(cr>0){for(var d=0;d<enterprise.customers.length;d++){if(txt.indexOf(entNorm(enterprise.customers[d].name))>=0){enterprise.customers[d].balance=Math.max(0,enterprise.customers[d].balance-cr);break;}}}saveEnterprise();}catch(e){}}
+function syncEnterpriseFromPosting(p){try{
+ var txt=entNorm(p.memo),arDr=0,arCr=0,apDr=0,apCr=0;
+ for(var i=0;i<p.lines.length;i++){
+  var l=p.lines[i],acct=String(l.account||'');
+  if(acct==='Accounts Receivable'){arDr+=Number(l.debit||0);arCr+=Number(l.credit||0);}
+  if(acct==='Accounts Payable'){apDr+=Number(l.debit||0);apCr+=Number(l.credit||0);}
+ }
+ if(arDr||arCr){
+  for(var c=0;c<enterprise.customers.length;c++){
+   var cust=enterprise.customers[c];
+   if(txt.indexOf(entNorm(cust.name))>=0){
+    if(arDr>0)cust.balance=Number(cust.balance||0)+arDr;
+    if(arCr>0){
+     cust.balance=Math.max(0,Number(cust.balance||0)-arCr);
+     if(Number(cust.overdue||0)>0)cust.overdue=Math.max(0,Number(cust.overdue||0)-arCr);
+     if(Number(cust.overdue||0)===0)cust.daysOverdue=0;
+    }
+    break;
+   }
+  }
+ }
+ if(apDr||apCr){
+  for(var s=0;s<enterprise.suppliers.length;s++){
+   var sup=enterprise.suppliers[s];
+   if(txt.indexOf(entNorm(sup.name))>=0){
+    if(apCr>0)sup.balance=Number(sup.balance||0)+apCr;
+    if(apDr>0)sup.balance=Math.max(0,Number(sup.balance||0)-apDr);
+    break;
+   }
+  }
+ }
+ saveEnterprise();
+}catch(e){}}
 window.enterprise=enterprise;window.businessAnswer=businessAnswer;window.syncEnterpriseFromPosting=syncEnterpriseFromPosting;
