@@ -703,14 +703,29 @@ def safe_snapshot(req: AskRequest) -> dict[str, Any]:
 def extract_citations(body: dict[str, Any]) -> list[Citation]:
     found: list[Citation] = []
     seen: set[str] = set()
+
+    def add(url: Any, title: Any = None) -> None:
+        if not url:
+            return
+        value = str(url)
+        if value in seen:
+            return
+        seen.add(value)
+        found.append(Citation(title=str(title or "Web source"), url=value))
+
     for item in body.get("output", []) or []:
+        # Foundry can expose the complete source set on the web_search_call action
+        # when web_search_call.action.sources is included in the request.
+        action = item.get("action") or {}
+        for source in action.get("sources", []) or []:
+            if isinstance(source, dict):
+                add(source.get("url"), source.get("title"))
+
+        # Citations that the model actually attached to its answer are also kept.
         for content in item.get("content", []) or []:
             for ann in content.get("annotations", []) or []:
-                url = ann.get("url") or (ann.get("url_citation") or {}).get("url")
-                title = ann.get("title") or (ann.get("url_citation") or {}).get("title") or "Web source"
-                if url and url not in seen:
-                    seen.add(url)
-                    found.append(Citation(title=str(title), url=str(url)))
+                citation = ann.get("url_citation") or {}
+                add(ann.get("url") or citation.get("url"), ann.get("title") or citation.get("title"))
     return found[:8]
 
 
@@ -745,8 +760,17 @@ async def call_provider(req: AskRequest) -> AskResponse | None:
     }
     wants_live = current_external_question(req.question)
     if settings.enable_web_search:
-        payload["tools"] = [{"type": "web_search", "search_context_size": "medium"}]
+        web_tool: dict[str, Any] = {"type": "web_search", "search_context_size": "medium"}
+        # The company profile is the only authorized locality hint available to
+        # this service. Ghana-based work therefore gets Ghana-relevant search
+        # ranking without collecting precise device location.
+        if str(req.company.country or "").strip().lower() == "ghana":
+            web_tool["user_location"] = {"type": "approximate", "country": "GH"}
+        payload["tools"] = [web_tool]
+        payload["include"] = ["web_search_call.action.sources"]
         if wants_live:
+            # There is only one tool in this request, so "required" means a
+            # time-sensitive answer must be grounded through web search.
             payload["tool_choice"] = "required"
 
     async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
@@ -775,6 +799,15 @@ async def call_provider(req: AskRequest) -> AskResponse | None:
         return AskResponse(answer=text, source="model", confidence="medium")
 
     web_used = any(item.get("type") == "web_search_call" for item in body.get("output", []) or [])
+    if wants_live and not web_used:
+        # Never present model memory as a live exchange rate, market price,
+        # regulation, news item, or other time-sensitive fact.
+        return AskResponse(
+            answer="I could not verify that current information through live web search, so I will not present an unverified current value.",
+            source="unavailable",
+            confidence="low",
+            operation_code="current_web_unverified",
+        )
     proposal = parsed.get("posting_proposal")
     client_action = parsed.get("client_action")
     return AskResponse(
