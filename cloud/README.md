@@ -2,6 +2,10 @@
 
 This is the server-side reasoning gateway for the Atlas Android test client.
 
+The production entry point is `app.entry:app`. It now includes the complete
+Atlas Accounting Agent specification and shared model-proposal checks.
+See [the integration and rollout guide](../docs/ATLAS_ACCOUNTING_AGENT.md).
+
 ## What it does
 
 - exposes `POST /v1/mobile/ask`
@@ -20,7 +24,7 @@ cd cloud
 python -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-PYTHONPATH=. uvicorn app.main:app --reload --port 8080
+PYTHONPATH=. uvicorn app.entry:app --reload --port 8080
 ```
 
 Health check:
