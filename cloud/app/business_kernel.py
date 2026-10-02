@@ -364,23 +364,15 @@ async def robust_current_web(engine: Any, req: Any):
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
-        return engine.AskResponse(answer=text, source="web", confidence="medium", web_used=True, citations=engine.extract_citations(body))
+        return engine.invalid_provider_response()
 
-    proposal = parsed.get("posting_proposal")
-    action = parsed.get("client_action")
-    return engine.AskResponse(
-        answer=str(parsed.get("answer") or "Atlas returned no answer."),
-        source="web",
-        confidence=str(parsed.get("confidence") or "medium"),
-        clarification=parsed.get("clarification"),
-        operation_code=parsed.get("operation_code"),
-        posting_proposal=engine.PostingProposal(**proposal) if proposal else None,
-        client_action=engine.ClientAction(**action) if action else None,
-        web_used=True,
-        citations=engine.extract_citations(body),
-        assumptions=[str(x) for x in parsed.get("assumptions", [])],
-        warnings=[str(x) for x in parsed.get("warnings", [])],
-    )
+    web_used = any(item.get("type") == "web_search_call" for item in body.get("output", []) or [])
+    if not web_used:
+        return engine.AskResponse(
+            answer="I could not verify that current information through live web search, so I will not present an unverified current value.",
+            source="unavailable", confidence="low", operation_code="current_web_unverified",
+        )
+    return engine.provider_response(parsed, web_used=True, citations=engine.extract_citations(body))
 
 
 def apply(engine: Any) -> None:
